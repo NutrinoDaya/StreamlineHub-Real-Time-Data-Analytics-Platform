@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+    <SparkSession>
+        <!-- Application settings -->
+        <app_name>StreamLineHub</app_name>
+        <master_url>spark://spark-master:7077</master_url>
+        
+        <!-- Resource allocation -->
+        <spark_cores_max>4</spark_cores_max>
+        <spark_executor_memory>2g</spark_executor_memory>
+        <spark_executor_cores>2</spark_executor_cores>
+        <spark_executor_memory_overhead>512m</spark_executor_memory_overhead>
+        <spark_driver_memory>1g</spark_driver_memory>
+        
+        <!-- Serialization tuning -->
+        <spark_kryoserializer_buffer>64m</spark_kryoserializer_buffer>
+        <spark_kryoserializer_buffer_max>512m</spark_kryoserializer_buffer_max>
+        
+        <!-- Task and result size limits -->
+        <spark_task_maxDirectResultSize>128m</spark_task_maxDirectResultSize>
+        <spark_driver_maxResultSize>1g</spark_driver_maxResultSize>
+        <spark_rpc_message_maxSize>256</spark_rpc_message_maxSize>
+        <spark_task_maxSerializationSize>5m</spark_task_maxSerializationSize>
+        
+        <!-- Debug settings -->
+        <spark_sql_debug_maxToStringFields>3000</spark_sql_debug_maxToStringFields>
+        
+        <!-- Delta Lake settings -->
+        <spark_autoMerge>true</spark_autoMerge>
+        <spark_packages>io.delta:delta-spark_2.12:3.0.0,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0</spark_packages>
+        <spark_sql_extensions>io.delta.sql.DeltaSparkSessionExtension</spark_sql_extensions>
+        <spark_catalog>org.apache.spark.sql.delta.catalog.DeltaCatalog</spark_catalog>
+        
+        <!-- Dynamic allocation -->
+        <spark_dynamicAllocation_enabled>false</spark_dynamicAllocation_enabled>
+    </SparkSession>
+    
+    <Paths>
+        <!-- Base paths for data storage -->
+        <data_folder>/opt/bitnami/spark/data</data_folder>
+        <delta_base>/opt/bitnami/spark/data/delta</delta_base>
+        <bronze_layer>bronze</bronze_layer>
+        <silver_layer>silver</silver_layer>
+        <gold_layer>gold</gold_layer>
+    </Paths>
+    
+    <Kafka>
+        <!-- Kafka connection settings -->
+        <bootstrap_servers>kafka:9092</bootstrap_servers>
+        <topics>
+            <customer_events>customer-events</customer_events>
+            <transactions>transactions</transactions>
+            <user_actions>user-actions</user_actions>
+        </topics>
+    </Kafka>
+</Configuration>

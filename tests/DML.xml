@@ -1,0 +1,19 @@
+<Configuration>
+    <DML>
+        <type>DeltaLake</type>
+        <storage_type>FILE</storage_type>
+    </DML>
+    <FILE>
+        <warehouse>data</warehouse>
+        <bronze_layer>bronze</bronze_layer>
+        <gold_layer>processed_data</gold_layer>
+        <silver_layer>silver</silver_layer>
+    </FILE>
+    <S3>
+        <s3_path>s3a://bucket_name/storage_type</s3_path>
+        <bucket_name>bucket</bucket_name>
+        <access_key>123</access_key>
+        <secret_key>123</secret_key>
+        <endpoint>endpoint</endpoint>
+    </S3>
+</Configuration>

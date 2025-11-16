@@ -1,0 +1,76 @@
+<Configuration>
+
+  <SparkSession>
+    <!-- Spark application name -->
+    <app_name>Big Data ETL</app_name>
+
+    <!-- Cluster master URL and max cores -->
+    <master_url>spark://spark-master:7077</master_url>
+
+    <!-- Kryo serializer tuning - increased for large data handling -->
+    <spark_kryoserializer_buffer>512m</spark_kryoserializer_buffer>
+    <spark_kryoserializer_buffer_max>2g</spark_kryoserializer_buffer_max>
+
+    <!-- Task/result size limits - increased to handle EOFException -->
+    <spark_task_maxDirectResultSize>1g</spark_task_maxDirectResultSize>
+    <spark_driver_maxResultSize>4g</spark_driver_maxResultSize>
+    <spark_rpc_message_maxSize>1024</spark_rpc_message_maxSize>
+    <spark_network_timeout>1200s</spark_network_timeout>
+    <spark_executor_heartbeatInterval>120s</spark_executor_heartbeatInterval>
+    <spark_serializer>org.apache.spark.serializer.KryoSerializer</spark_serializer>
+    <spark_serializer_objectStreamReset>100</spark_serializer_objectStreamReset>
+
+    <!-- Debug & schema evolution -->
+    <spark_sql_debug_maxToStringFields>3000</spark_sql_debug_maxToStringFields>
+    <spark_autoMerge>true</spark_autoMerge>
+
+    <!-- executor settings your jobs will request - increased memory for large data processing -->
+    <spark_executor_cores>1</spark_executor_cores>
+    <spark_executor_memory>1g</spark_executor_memory>
+    <spark_executor_instances>1</spark_executor_instances>
+    <!-- allow app to use up to all cluster cores - 12 cores total (4 workers × 3 cores) -->
+    <spark_cores_max>3</spark_cores_max>
+    <spark_driver_memory>6g</spark_driver_memory>
+
+    <!-- JAR dependencies - Delta Lake 3.3.0 for consistency -->
+    <spark_packages>org.elasticsearch:elasticsearch-spark-30_2.12:7.17.27,com.databricks:spark-xml_2.12:0.13.0,io.delta:delta-spark_2.12:3.3.0</spark_packages>
+
+    <!-- Spark SQL extensions & catalog -->
+    <spark_sql_extensions>io.delta.sql.DeltaSparkSessionExtension</spark_sql_extensions>
+    <spark_catalog>org.apache.spark.sql.delta.catalog.DeltaCatalog</spark_catalog>
+
+    <!-- Delta Lake optimizations and error handling -->
+    <spark_delta_autoCompact_enabled>true</spark_delta_autoCompact_enabled>
+    <spark_delta_autoOptimize_optimizeWrite>true</spark_delta_autoOptimize_optimizeWrite>
+    <spark_delta_autoOptimize_autoCompact>true</spark_delta_autoOptimize_autoCompact>
+    <spark_databricks_delta_retentionDurationCheck_enabled>false</spark_databricks_delta_retentionDurationCheck_enabled>
+    <spark_databricks_delta_vacuum_parallelDelete_enabled>true</spark_databricks_delta_vacuum_parallelDelete_enabled>
+    
+    <!-- File system resilience -->
+    <spark_sql_adaptive_enabled>true</spark_sql_adaptive_enabled>
+    <spark_sql_adaptive_coalescePartitions_enabled>true</spark_sql_adaptive_coalescePartitions_enabled>
+    <spark_sql_adaptive_skewJoin_enabled>true</spark_sql_adaptive_skewJoin_enabled>
+    <spark_hadoop_fs_s3a_retry_limit>10</spark_hadoop_fs_s3a_retry_limit>
+    <spark_hadoop_fs_s3a_retry_interval>500ms</spark_hadoop_fs_s3a_retry_interval>
+    
+    <!-- Partitioning and memory management -->
+    <spark_sql_shuffle_partitions>200</spark_sql_shuffle_partitions>
+    <spark_default_parallelism>8</spark_default_parallelism>
+    <spark_sql_adaptive_coalescePartitions_minPartitionSize>1MB</spark_sql_adaptive_coalescePartitions_minPartitionSize>
+    <spark_sql_adaptive_advisoryPartitionSizeInBytes>128MB</spark_sql_adaptive_advisoryPartitionSizeInBytes>
+
+  </SparkSession>
+
+  <SparkRead>
+    <!-- Default format and parse mode -->
+    <read_format>com.databricks.spark.xml</read_format>
+    <read_mode>DROPMALFORMED</read_mode>
+    <escapedStringLiterals>true</escapedStringLiterals>
+  </SparkRead>
+
+  <Paths>
+    <!-- Base data folder -->
+    <data_folder>data</data_folder>
+  </Paths>
+
+</Configuration>

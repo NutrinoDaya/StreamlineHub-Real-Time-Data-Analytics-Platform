@@ -1,0 +1,30 @@
+<Configuration>
+    <local_port>8000</local_port>
+    <local_host>0.0.0.0</local_host>
+    <uvi_workers>3</uvi_workers>
+    <redis_host>redis</redis_host>
+    <redis_port>6379</redis_port>
+    <redis_db>0</redis_db>
+    <kafka_broker>broker:29092</kafka_broker>
+    <rabbitMQ_hostname>rabbitmq</rabbitMQ_hostname>
+    <ipp_psop_queue>ipp_psop_queue</ipp_psop_queue>
+    <ipp_psop_topic_name>ipp_psop_topic</ipp_psop_topic_name>
+    <traffic_topic_name>traffic_topic</traffic_topic_name>
+    <vpc_topic_name>vpc_topic_name</vpc_topic_name>
+    <ipp_psop_timeout>420</ipp_psop_timeout>
+    <ipp_psop_index>viipp</ipp_psop_index>
+
+    <use_opentelemetry>false</use_opentelemetry>
+    <Write>
+        <max_attempts>4</max_attempts>
+        <partitions>600</partitions>
+        <max_items>5000</max_items>
+        <ipp_psop_prefix>IPP_PSOP</ipp_psop_prefix>
+        <traffic_prefix>Traffic</traffic_prefix>
+        <psop_prefix>PSOP</psop_prefix>
+        <compression_algorithm>gzip</compression_algorithm>
+        <enable_strict_validation>false</enable_strict_validation>
+    </Write>
+
+</Configuration>
+

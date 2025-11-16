@@ -1,0 +1,68 @@
+# =====================================================
+# Base Image: Official Apache Airflow
+# =====================================================
+FROM apache/airflow:2.10.3-python3.10
+
+USER root
+
+# Install OS dependencies + Java 11
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        wget \
+        curl \
+        gnupg \
+        apt-transport-https \
+        ca-certificates \
+        software-properties-common && \
+    wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | apt-key add - && \
+    echo "deb https://packages.adoptium.net/artifactory/deb bookworm main" > /etc/apt/sources.list.d/adoptium.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        temurin-11-jdk \
+        procps \
+        vim \
+        unzip \
+        rsync && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# =====================================================
+# Spark Setup
+# =====================================================
+ENV SPARK_VERSION=3.5.4
+ENV HADOOP_VERSION=3
+ENV SPARK_HOME=/opt/spark
+ENV JAVA_HOME=/usr/lib/jvm/temurin-11-jdk-amd64
+
+# Download Spark if not already present
+RUN mkdir -p $SPARK_HOME && \
+    wget -q "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" -O /tmp/spark.tgz && \
+    tar -xzf /tmp/spark.tgz -C $SPARK_HOME --strip-components=1 && \
+    rm -f /tmp/spark.tgz && \
+    chmod -R 777 $SPARK_HOME
+
+ENV PATH=$SPARK_HOME/bin:$JAVA_HOME/bin:$PATH
+
+USER airflow
+
+# =====================================================
+# Install Airflow Providers & Dependencies
+# =====================================================
+RUN pip install --no-cache-dir \
+    pyspark==3.5.4 \
+    apache-airflow-providers-apache-spark==5.0.0 \
+    delta-spark==3.3.0 \
+    elasticsearch==8.15.1 \
+    confluent-kafka==2.6.1 \
+    kafka-python==2.0.2 \
+    pandas==2.2.3 \
+    numpy==2.1.1 \
+    python-dateutil==2.9.0.post0 \
+    PyYAML==6.0.2
+
+# Production environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONOPTIMIZE=1
+ENV AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
+ENV AIRFLOW__CORE__PLUGINS_FOLDER=/opt/airflow/plugins
+ENV PYTHONPATH=/opt/airflow:/opt/airflow/dags:/opt/airflow/plugins
