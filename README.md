@@ -31,6 +31,14 @@ StreamlineHub is a comprehensive ETL platform that combines real-time event stre
 
 ## Architecture
 
+### Platform Screenshots
+
+![StreamlineHub Dashboard](assets/Untitled.jpg)
+*Real-time analytics dashboard with live metrics and data visualization*
+
+![Platform Architecture](assets/Untitledd.png) 
+*System architecture overview showing data flow and component interactions*
+
 ### ETL Architecture
 
 ```

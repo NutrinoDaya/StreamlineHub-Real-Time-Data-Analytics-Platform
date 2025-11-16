@@ -33,7 +33,8 @@ RUN mkdir -p /opt/StreamLineHub/data \
 
 # Copy requirements and install dependencies
 COPY spark-requirements.txt /tmp/
-RUN pip3 install --no-cache-dir -r /tmp/spark-requirements.txt
+RUN pip3 install --upgrade pip && \
+    pip3 install --no-cache-dir --timeout=300 --retries=5 -r /tmp/spark-requirements.txt
 
 # Copy Spark configuration files
 COPY dependencies/spark/spark-defaults.conf ${SPARK_HOME}/conf/

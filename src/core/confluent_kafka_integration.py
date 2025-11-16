@@ -169,7 +169,7 @@ class ConfluentKafkaConsumer:
         }
         
         # Real-time rate tracking (sliding window)
-        self.message_timestamps = deque(maxlen=100)  # Track last 100 messages
+        self.message_timestamps = deque(maxlen=15000)  # Track last 15000 messages (supports up to 3000/sec for 5-sec window)
         self._lock = threading.Lock()
     
     def connect(self, topics: List[str]) -> bool:
@@ -390,32 +390,57 @@ class KafkaManager:
             
             # NEW ETL PIPELINE: Kafka → Redis Buffer → ETL Processing → Bronze Layer
             
-            # Try to add event to Redis buffer for ETL processing
+            # Try to add event to Redis buffer for ETL processing (synchronous approach)
             try:
-                from src.core.data_buffer import get_data_buffer
-                from src.core.etl_processor import get_etl_processor
+                # Store event data in Redis synchronously for real-time dashboard
+                import redis
+                import os
                 
-                # Get global buffer instance
-                data_buffer = get_data_buffer()
+                # Detect if running in Docker container or host
+                redis_host = 'redis' if os.path.exists('/.dockerenv') else 'localhost'
+                redis_port = 6379 if os.path.exists('/.dockerenv') else 16379
                 
-                # Add event to buffer (will trigger ETL processing when threshold reached)
-                loop = asyncio.get_running_loop() if asyncio.get_running_loop() else None
-                if loop:
-                    # Schedule async buffer operation
-                    asyncio.run_coroutine_threadsafe(
-                        self._add_to_buffer_and_process(data_buffer, processed_event),
-                        loop
-                    )
-                else:
-                    logger.debug("No event loop available for buffer processing")
-                    
+                redis_client = redis.Redis(host=redis_host, port=redis_port, password='redis_secret', decode_responses=True)
+                
+                # Store individual event with timestamp
+                event_key = f"event:{datetime.now().isoformat()}"
+                redis_client.setex(event_key, 300, json.dumps(processed_event))  # 5 min expiry
+                
+                # Update aggregated metrics
+                event_type = processed_event.get('event_type', 'unknown')
+                redis_client.hincrby('metrics:events', event_type, 1)
+                redis_client.hincrby('metrics:events', 'total', 1)
+                
+                # Store latest event for real-time API
+                redis_client.setex('latest_event', 60, json.dumps(processed_event))
+                
+                # Update real-time metrics for dashboard
+                now = datetime.now()
+                
+                # Get accurate consumer rate from the consumer instance
+                consumer_rate = 0.0
+                if self.consumer:
+                    consumer_stats = self.consumer.get_stats()
+                    consumer_rate = consumer_stats.get('messages_per_second', 0.0)
+                
+                metrics = {
+                    'timestamp': now.isoformat(),
+                    'active_users': int(redis_client.hget('metrics:events', 'total') or 0),
+                    'events_per_second': consumer_rate,
+                    'revenue_per_minute': float(processed_event.get('value', 0)) if processed_event.get('value') else 0.0,
+                    'conversion_rate': 2.5,  # Mock for now
+                    'avg_session_duration': 180.0,  # Mock for now  
+                    'bounce_rate': 0.35  # Mock for now
+                }
+                redis_client.setex('realtime_metrics', 30, json.dumps(metrics))
+                
             except Exception as buffer_error:
                 logger.warning(f"Failed to buffer event for ETL processing: {buffer_error}")
                 # Fall back to old file storage
                 self._save_event_to_file(processed_event)
             
-            # Still broadcast to WebSocket dashboard for real-time monitoring
-            if self.websocket_manager:
+            # Store WebSocket event data in Redis for frontend polling (no async required)
+            if self.websocket_manager or True:  # Always store for frontend polling
                 enhanced_event = {
                     "type": "kafka_event",
                     "data": processed_event,
@@ -426,13 +451,19 @@ class KafkaManager:
                 }
                 
                 try:
-                    loop = asyncio.get_running_loop()
-                    asyncio.run_coroutine_threadsafe(
-                        self.websocket_manager.broadcast(json.dumps(enhanced_event)),
-                        loop
-                    )
-                except RuntimeError:
-                    logger.debug("No event loop available for WebSocket broadcast")
+                    import redis
+                    import os
+                    
+                    # Detect if running in Docker container or host
+                    redis_host = 'redis' if os.path.exists('/.dockerenv') else 'localhost'  
+                    redis_port = 6379 if os.path.exists('/.dockerenv') else 16379
+                    
+                    redis_client = redis.Redis(host=redis_host, port=redis_port, password='redis_secret', decode_responses=True)
+                    # Store for frontend to poll
+                    redis_client.lpush('websocket_events', json.dumps(enhanced_event))
+                    redis_client.ltrim('websocket_events', 0, 49)  # Keep last 50 events
+                except Exception as ws_error:
+                    logger.debug(f"No Redis available for WebSocket event storage: {ws_error}")
             
             logger.info(f"✅ Processed Kafka message: {event_data.get('event_type', 'unknown')}")
             
