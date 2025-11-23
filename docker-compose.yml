@@ -1,0 +1,406 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.Airflow
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:airflow_pass@postgres/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow_user:airflow_pass@postgres/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_FOLDER: '/opt/airflow/dags'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__LOGGING__LOGGING_LEVEL: 'INFO'
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    AIRFLOW_ADMIN_USERNAME: "admin"
+    AIRFLOW_ADMIN_PASSWORD: "admin"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "StreamLineHubSecretKey2025_Rotated_v2"
+    AIRFLOW_CONN_SPARK_CONN: 'spark://spark-master:7077'
+    AIRFLOW__WEBSERVER__RATE_LIMIT_STORAGE_URI: 'redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/2'
+    PYSPARK_PYTHON: "/usr/local/bin/python3.10"
+    SPARK_HOME: "/opt/spark"
+    SPARK_MASTER_URL: "spark://spark-master:7077"
+    JAVA_HOME: "/usr/lib/jvm/java-17-openjdk-amd64"
+    PYTHONPATH: "/opt/airflow"
+    # OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318" # Collector service not defined
+    # OTEL_RESOURCE_ATTRIBUTES: "service.namespace=Airflow"
+  volumes:
+    - ./backend/dags:/opt/airflow/dags:rw
+    - ./backend/dag_scripts:/opt/airflow/dag_scripts:ro
+    - ./backend/scripts:/opt/airflow/scripts:rw
+    - ./backend/logs:/opt/airflow/logs:rw
+    - ./data:/opt/airflow/data:rw
+    - ./backend/src:/opt/airflow/src:ro
+    - ./backend/config:/opt/airflow/config:ro
+  networks:
+    - streamlinehub-network
+
+x-airflow-common-depends-on: &airflow-common-depends-on
+  redis:
+    condition: service_healthy
+  postgres:
+    condition: service_healthy
+  # collector: # Service not defined
+  #   condition: service_started
+
+services:
+  # MongoDB is hosted on Windows host machine
+  # Connection via host.docker.internal:27017
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: streamlinehub-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.Backend
+    container_name: streamlinehub-backend
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      STREAMLINEHUB_ENVIRONMENT: ${ENVIRONMENT:-development}
+      STREAMLINEHUB_DEBUG: ${DEBUG:-true}
+      STREAMLINEHUB_SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production_12345678}
+      STREAMLINEHUB_MONGODB_URL: ${MONGODB_URL:-mongodb://host.docker.internal:27017}
+      STREAMLINEHUB_MONGODB_DATABASE: ${MONGODB_DATABASE:-streamlinehub_dev}
+      STREAMLINEHUB_REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/0
+      STREAMLINEHUB_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      STREAMLINEHUB_DELTA_LAKE_PATH: "/app/data/delta"
+      STREAMLINEHUB_CHECKPOINT_LOCATION: "/app/data/checkpoints"
+      STREAMLINEHUB_ELASTICSEARCH_URL: "http://elasticsearch:9200"
+      BRONZE_PATH: "/app/data/bronze"
+      SILVER_PATH: "/app/data/silver"
+      GOLD_PATH: "/app/data/gold"
+    volumes:
+      - ./backend/src:/app/src:ro
+      - ./backend/scripts:/app/scripts:ro
+      - ./backend/config:/app/config
+      - ./data:/app/data:rw
+      - ./backend/logs:/app/logs
+    ports:
+      - "4000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ./Dockerfile
+    container_name: streamlinehub-frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    ports:
+      - "3002:3000"
+    depends_on:
+      - backend
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: streamlinehub-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2281
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2281:2281"
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+
+  # Apache Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: streamlinehub-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "19092:9092"
+      - "19093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2281
+
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:19093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+
+  # Kafka UI
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: streamlinehub-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "19096:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: streamlinehub
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2281
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+
+  # Spark Master
+  spark-master:
+    image: streamlinehub-spark:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.Spark
+    container_name: streamlinehub-spark-master
+    hostname: spark-master
+    expose:
+      - "7077"
+    ports:
+      - "18010:8080"
+    env_file:
+      - backend/dependencies/spark/.env.spark
+    environment:
+      - SPARK_MODE=master
+    restart: unless-stopped
+    networks:
+      - streamlinehub-network
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://spark-master:8080"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    volumes:
+      - ./:/opt/StreamlineHub:rw
+      - ./data:/app/data:rw
+      - ./data:/opt/airflow/data:rw
+      - ./backend/config:/opt/StreamlineHub/config:ro
+      - spark-events:/opt/spark/event_logs
+
+  # Spark Worker
+  spark-worker:
+    image: streamlinehub-spark:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.Spark
+    container_name: streamlinehub-spark-worker
+    hostname: spark-worker
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    env_file:
+      - backend/dependencies/spark/.env.spark
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    restart: unless-stopped
+    networks:
+      - streamlinehub-network
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://spark-worker:8081"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    volumes:
+      - ./:/opt/StreamlineHub:rw
+      - ./data:/app/data:rw
+      - ./data:/opt/airflow/data:rw
+      - ./backend/config:/opt/StreamlineHub/config:ro
+      - spark-events:/opt/spark/event_logs
+
+  # Redis to Bronze Layer Ingestion Service
+  redis-ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile.Backend
+    container_name: streamlinehub-redis-ingestion
+    hostname: redis-ingestion
+    depends_on:
+      redis:
+        condition: service_healthy
+      spark-master:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/app:/app/src
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - BRONZE_PATH=/app/data/bronze
+      - SILVER_PATH=/app/data/silver
+      - GOLD_PATH=/app/data/gold
+      - BRONZE_DATA_PATH=/app/data/bronze
+    command: >
+      bash -c "
+        echo 'Starting Redis to Delta ingestion service...' &&
+        python /app/scripts/Redis_to_delta_ingestion.py
+      "
+    restart: unless-stopped
+    networks:
+      - streamlinehub-network
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/scripts:/app/scripts
+      - ./backend/config:/app/config
+      - ./data:/app/data:rw
+      - ./backend/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis(host='redis', port=6379, password='${REDIS_PASSWORD:-redis_secret}', decode_responses=True).ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Apache Airflow uses the main PostgreSQL container
+
+  # Elasticsearch for Analytics
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.1
+    container_name: streamlinehub-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "19200:9200"
+      - "19300:9300"
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Kibana for Elasticsearch Visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.1
+    container_name: streamlinehub-kibana
+    environment:
+      - SERVER_NAME=kibana
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - XPACK_SECURITY_ENABLED=false
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=a7a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d
+    ports:
+      - "5691:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - streamlinehub-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # PostgreSQL for System and Airflow
+  postgres:
+    image: postgres:13
+    container_name: streamlinehub-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_secret
+      POSTGRES_DB: streamlinehub
+      # Create additional databases on startup
+      POSTGRES_MULTIPLE_DATABASES: airflow,streamlinehub_system
+    volumes:
+      - postgres_db_data:/var/lib/postgresql/data
+      - ./backend/scripts/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - streamlinehub-network
+
+  # Airflow uses the main Redis container with different databases
+
+  # Airflow (All-in-One)
+  airflow:
+    <<: *airflow-common
+    container_name: streamlinehub-airflow
+    command: bash /opt/airflow/scripts/start-airflow-all-in-one.sh
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on: *airflow-common-depends-on
+
+networks:
+  streamlinehub-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_db_data:
+  elasticsearch_data:
+  spark-events:

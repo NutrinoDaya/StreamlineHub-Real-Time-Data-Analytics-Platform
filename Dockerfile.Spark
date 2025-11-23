@@ -1,0 +1,52 @@
+FROM python:3.10.8-slim
+
+# Install system dependencies and Java 11 (matching Big Data config)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    openjdk-11-jre-headless \
+    curl \
+    vim \
+    unzip \
+    rsync \
+    procps \
+    ssh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables
+ENV SPARK_VERSION=3.5.4 \
+    HADOOP_VERSION=3 \
+    SPARK_HOME=/opt/spark \
+    JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 \
+    PYSPARK_PYTHON=python3 \
+    PYSPARK_DRIVER_PYTHON=python3
+
+ENV PATH=$SPARK_HOME/bin:$SPARK_HOME/sbin:$PATH
+
+# Copy and install local Spark
+COPY backend/dependencies/spark/spark-3.5.4-bin-hadoop3.tgz /tmp/spark.tgz
+RUN tar -xf /tmp/spark.tgz && \
+    mv spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} /opt/spark && \
+    rm /tmp/spark.tgz
+
+# Ensure Ivy can resolve dependencies
+RUN mkdir -p /root/.ivy2 && chmod -R 777 /root/.ivy2
+
+# Copy requirements.txt and install Python dependencies with increased timeout
+COPY backend/dependencies/spark/requirements.spark.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --default-timeout=300 --retries 5 -r /tmp/requirements.txt
+
+# Copy start script
+COPY backend/bin/start-spark.sh /start-spark.sh
+RUN chmod +x /start-spark.sh
+
+# Ensure Spark directory permissions
+RUN chmod -R 777 ${SPARK_HOME}
+
+# Set project directory as an environment variable
+ENV PROJECT_DIR="/opt/Vi_Big_Data_Main/Big_Data_ETL"
+
+WORKDIR /opt/spark
+
+# Set entrypoint
+ENTRYPOINT ["/start-spark.sh"]

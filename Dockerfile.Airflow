@@ -1,0 +1,48 @@
+# Use official Apache Airflow image
+FROM apache/airflow:2.10.2-python3.10
+
+# Switch to root to install system packages and set up the entrypoint
+USER root
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-17-jdk \
+        procps \
+        curl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Spark
+ENV SPARK_VERSION=3.5.4
+ENV HADOOP_VERSION=3
+ENV SPARK_HOME=/opt/spark
+ENV PATH=$SPARK_HOME/bin:$PATH
+
+RUN curl -L -o /tmp/spark.tgz \
+    "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" && \
+    tar -xzf /tmp/spark.tgz -C /opt/ && \
+    mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} /opt/spark && \
+    rm /tmp/spark.tgz
+
+# Download and install gosu using the now-available curl command
+RUN curl -L -o /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/1.17/gosu-amd64" && \
+    chmod +x /usr/local/bin/gosu && \
+    echo "gosu installed successfully"
+
+# Set JAVA_HOME explicitly for Spark and other processes
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# Set project directory as an environment variable for clarity
+ENV PROJECT_DIR=/opt/airflow
+
+# Copy the requirements file into the container
+COPY backend/dependencies/airflow/requirements.airflow.txt /requirements.airflow.txt
+
+# Use standard Airflow entrypoint
+# ENTRYPOINT is inherited from base image
+
+# Switch back to the airflow user for Python package installation and runtime
+USER airflow
+
+# Install additional Python packages from the requirements file
+RUN pip install --no-cache-dir -r /requirements.airflow.txt
